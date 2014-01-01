@@ -18,6 +18,8 @@ namespace AirMouse
     public partial class Form1 : Form
     {
         private delegate void delegateStuff(string text);
+        private delegate void delegateTwoFloats();
+        float x, y;
         private enum MessageType { Data, Close, Hello, Unset };
         UdpClient _socket;
         public int _port = 6000;
@@ -26,7 +28,7 @@ namespace AirMouse
         BackgroundWorker _bw;
         bool _on = true;
 
-        
+
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern void mouse_event(int dwFlags, int dx, int dy, int cButtons, int dwExtraInfo);
         public const int LEFTDOWN = 0x02;
@@ -69,8 +71,8 @@ namespace AirMouse
 
                 var bytes = _socket.Receive(ref groupEP);
                 var data = Encoding.ASCII.GetString(bytes);
-              
-                var msgType =ComputeReceivedData(data);
+
+                var msgType = ComputeReceivedData(data);
                 if (msgType == MessageType.Hello)
                 {
                     var answer = Encoding.ASCII.GetBytes("que ase");
@@ -95,7 +97,7 @@ namespace AirMouse
         }
 
 
-     
+
         private void writeText(string text)
         {
             if (this.InvokeRequired)
@@ -105,25 +107,58 @@ namespace AirMouse
             }
             else
             {
-                textBox1.Text = text;
+                textBox1.Text = "#" + text;
             }
         }
         private MessageType ComputeReceivedData(string receivedData)
         {
 
             string[] splitedData = (receivedData.Split(' '));
+            writeText(receivedData);
+
+
+            if (splitedData.Count() == 1)
+            {
+                if (splitedData[0] == "hola")
+                {
+                    return MessageType.Hello;
+                }
+                else if (splitedData[0] == "close")
+                {
+                    return MessageType.Close;
+                }
+                else if (splitedData[0] == "delete")
+                {
+                    SendKeys.SendWait("{BACKSPACE}");
+                }
+            }
 
             if (splitedData.Count() == 2)
             {
-                
+
                 string splitedDataX = splitedData[0];
                 string splitedDataY = splitedData[1];
 
-                writeText(splitedDataX + Environment.NewLine + splitedDataY);
-                return MessageType.Data;
-
                 splitedDataX = splitedDataX.Replace('.', ',');
                 splitedDataY = splitedDataY.Replace('.', ',');
+
+
+
+                if (splitedDataX == "keyboard")
+                {
+                    SendKeys.SendWait(splitedDataY);
+                }
+
+                float floatX, floatY;
+                if (float.TryParse(splitedDataX, out floatX) && float.TryParse(splitedDataY, out floatY))
+                {
+                    x = floatX;
+                    y = floatY;
+                    FillProgress();
+                }
+
+
+
                 double splitedDataXF;
                 double splitedDataZF;
 
@@ -184,7 +219,7 @@ namespace AirMouse
                     {
                         if (Math.Abs(splitedDataZF) > MIN_MOV)
                         {
-                            incX = (int)(splitedDataZF );
+                            incX = (int)(splitedDataZF);
                             currentX -= incX;
                         }
                     }
@@ -193,21 +228,52 @@ namespace AirMouse
                 }
                 return MessageType.Data;
             }
-           
-            else if (splitedData.Count() == 1)
-            {
-                if (splitedData[0] == "hola")
-                {
-                     return MessageType.Hello;
-                }
-                else if (splitedData[0] == "close")
-                {
-                     return MessageType.Close;
-                }
-            }
+
+
             return MessageType.Unset;
         }
 
+
+        private void FillProgress()
+        {
+            if (this.InvokeRequired)
+            {
+                var del = new delegateTwoFloats(FillProgress);
+
+                this.Invoke(del);
+            }
+            else
+            {
+                const int max = 1000;
+                if (Math.Abs(x) < max)
+                {
+                    if (x > 0)
+                    {
+                        progressBarRight.Value = Convert.ToInt32(x);
+                        progressBarLeft.Value = 0;
+                    }
+                    else
+                    {
+                        progressBarRight.Value = 0;
+                        progressBarLeft.Value = Convert.ToInt32(Math.Abs(x));
+                    }
+                }
+
+                if (Math.Abs(y) < max)
+                {
+                    if (y > 0)
+                    {
+                        progressBarUp.Value = Convert.ToInt32(y);
+                        progressBarDown.Value = 0;
+                    }
+                    else
+                    {
+                        progressBarUp.Value = 0;
+                        progressBarDown.Value = Convert.ToInt32(Math.Abs(y));
+                    }
+                }
+            }
+        }
 
         #region Mouse Event Simulation
         private void MouseLeftDown()
@@ -218,7 +284,7 @@ namespace AirMouse
         {
             mouse_event(LEFTUP, Cursor.Position.X, Cursor.Position.Y, 0, 0);
         }
-      
+
         private void MouseRightDown()
         {
             mouse_event(RIGHTDOWN, Cursor.Position.X, Cursor.Position.Y, 0, 0);
