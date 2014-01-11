@@ -19,11 +19,14 @@ namespace AirMouse
     {
         private delegate void delegateStuff(string text);
         private delegate void delegateTwoFloats();
+
+        private NotifyIcon _trayIcon;
+        private ContextMenu _trayMenu;
+
         float x, y;
-        private enum MessageType { Data, Close, Hello, Unset };
+        private enum MessageType { Data, Close, Hello, Bye, Unset };
         UdpClient _socket;
         public int _port = 6000;
-        //private const float SENSIBILITY = 100;
         private const float MIN_MOV = 0.035f;
         BackgroundWorker _bw;
         bool _on = true;
@@ -41,7 +44,10 @@ namespace AirMouse
 
         public Form1()
         {
+
             InitializeComponent();
+            MaximizeBox = false;
+
             _bw = new BackgroundWorker();
 
             _bw.WorkerReportsProgress = true;
@@ -50,18 +56,59 @@ namespace AirMouse
             _bw.DoWork += bw_DoWork;
             _bw.RunWorkerCompleted += bw_RunWorkerCompleted;
 
+            // Create a simple tray menu with only one item.
+            _trayMenu = new ContextMenu();
+            _trayMenu.MenuItems.Add("Close", OnExit);
+
+
+            _trayIcon = new NotifyIcon();
+            _trayIcon.Text = Application.ProductName;
+            _trayIcon.Icon = Properties.Resources.ico_tray_ico100;//new Icon(SystemIcons.Application, 40, 40);
+            _trayIcon.BalloonTipTitle = Application.ProductName;
+            _trayIcon.BalloonTipText = String.Format("{0} was minimized, to restore UI click over this icon", Application.ProductName);
+
+            _trayIcon.ContextMenu = _trayMenu;
+            _trayIcon.Visible = false;
+            _trayIcon.Click += (o, e) => { WindowState = FormWindowState.Normal; this.Show(); };
+            
+            ShowInTaskbar = false;
+
         }
 
+        private void frmMain_Resize(object sender, EventArgs e)
+        {
+            if (WindowState == FormWindowState.Minimized)
+            {
+                _trayIcon.Visible = true;
+                _trayIcon.ShowBalloonTip(500);
+                this.Hide();
+               
+            }
 
+            else if (WindowState == FormWindowState.Normal)
+            {
+                _trayIcon.Visible = false;
+                
+            }
+        }
 
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            WriteStatusText("Waiting for inoming connections...");
             _socket = new UdpClient(_port);
             _bw.RunWorkerAsync();
-
+            base.OnLoad(e);
         }
-
+        private void OnExit(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+        }
         void bw_DoWork(object sender, DoWorkEventArgs e)
         {
             IPEndPoint groupEP = new IPEndPoint(IPAddress.Any, _port);
@@ -70,20 +117,26 @@ namespace AirMouse
             {
 
                 var bytes = _socket.Receive(ref groupEP);
-                var data = Encoding.ASCII.GetString(bytes);
+                var data = Encoding.UTF8.GetString(bytes);
 
                 var msgType = ComputeReceivedData(data);
                 if (msgType == MessageType.Hello)
                 {
                     var answer = Encoding.ASCII.GetBytes("que ase");
-
                     _socket.Connect(groupEP.Address, groupEP.Port);
                     _socket.Send(answer, answer.Length);
+
+                    WriteStatusText("Connected");
+  
+                }
+
+                if (msgType == MessageType.Bye)
+                {
+                    WriteStatusText("Waiting for inoming connections...");
                     _socket.Close();
                     _socket = new UdpClient(_port);
                     groupEP = new IPEndPoint(IPAddress.Any, _port);
                 }
-
 
             }
         }
@@ -98,11 +151,11 @@ namespace AirMouse
 
 
 
-        private void writeText(string text)
+        private void WriteText(string text)
         {
             if (this.InvokeRequired)
             {
-                var del = new delegateStuff(writeText);
+                var del = new delegateStuff(WriteText);
                 this.Invoke(del, new[] { text });
             }
             else
@@ -110,18 +163,40 @@ namespace AirMouse
                 textBox1.Text = "#" + text;
             }
         }
+
+        private void WriteStatusText(string text)
+        {
+            if (this.InvokeRequired)
+            {
+                var del = new delegateStuff(WriteStatusText);
+                this.Invoke(del, new[] { text });
+            }
+            else
+            {
+                labelStatus.Text = text;
+            }
+        }
+
         private MessageType ComputeReceivedData(string receivedData)
         {
 
-            string[] splitedData = (receivedData.Split(' '));
-            writeText(receivedData);
+            string[] splitedData = (receivedData.Split('|'));
+
+
+            if (receivedData == "keyboard||")
+                splitedData = new[] { "keyboard", "|" };
 
 
             if (splitedData.Count() == 1)
             {
+                WriteText(receivedData);
                 if (splitedData[0] == "hola")
                 {
                     return MessageType.Hello;
+                }
+                else if (splitedData[0] == "adeu")
+                {
+                    return MessageType.Bye;
                 }
                 else if (splitedData[0] == "close")
                 {
@@ -131,27 +206,36 @@ namespace AirMouse
                 {
                     SendKeys.SendWait("{BACKSPACE}");
                 }
+                else if (splitedData[0] == "enter")
+                {
+                    SendKeys.SendWait("{ENTER}");
+                }
             }
 
             if (splitedData.Count() == 2)
             {
-
                 string splitedDataX = splitedData[0];
                 string splitedDataY = splitedData[1];
-
-                splitedDataX = splitedDataX.Replace('.', ',');
-                splitedDataY = splitedDataY.Replace('.', ',');
 
 
 
                 if (splitedDataX == "keyboard")
                 {
+                    splitedDataY = splitedDataY.Replace("+", "{+}");
+                    splitedDataY = splitedDataY.Replace("^", "{^}");
+                    splitedDataY = splitedDataY.Replace("%", "{%}");
+                    splitedDataY = splitedDataY.Replace("~", "{~}");
+                    splitedDataY = splitedDataY.Replace("(", "{(}");
+                    splitedDataY = splitedDataY.Replace(")", "{)}");
+
                     SendKeys.SendWait(splitedDataY);
                 }
+
 
                 float floatX, floatY;
                 if (float.TryParse(splitedDataX, out floatX) && float.TryParse(splitedDataY, out floatY))
                 {
+
                     x = floatX;
                     y = floatY;
                     FillProgress();
@@ -189,6 +273,7 @@ namespace AirMouse
 
                     else if (String.Empty != splitedDataY)
                     {
+                        splitedDataY = splitedDataY.Replace('.', ',');
                         float delta;
                         if (float.TryParse(splitedDataY, out delta))
                         {
@@ -199,6 +284,8 @@ namespace AirMouse
                 else
                 {
 
+                    splitedDataX = splitedDataX.Replace('.', ',');
+                    splitedDataY = splitedDataY.Replace('.', ',');
                     var currentX = Cursor.Position.X;
                     var currentY = Cursor.Position.Y;
                     int incX = 0;
@@ -232,7 +319,6 @@ namespace AirMouse
 
             return MessageType.Unset;
         }
-
 
         private void FillProgress()
         {
@@ -313,6 +399,8 @@ namespace AirMouse
             mouse_event(WHEEL_SCROLL, Cursor.Position.X, Cursor.Position.Y, scrollValue, 0);
         }
         #endregion
+
+        
 
 
 
